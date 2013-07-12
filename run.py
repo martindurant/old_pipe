@@ -34,6 +34,18 @@ _lib.make_fixed.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
 _lib.make_moving.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
+_lib.make_mask.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
+                            ct.c_float,ct.c_float,ct.c_float]
+
+"""for each Image structure, the first three elements are ints giving
+the array size, and the next is a pointer to the data; the ints are
+int32, and the pointer to the data is at fixed+16 bytes, also an int32
+"""
+
+"""Suspect that breakage is in the removal of if clauses dealing with
+ROI, which was referenced in setting up the number of nodes and the
+extremes of the ranges to use.
+Should repair them, and simply provide an ROI that is all 1.0"""
 
 def put_data(fixed,moving,vox):
     """Make the global variables fixed,moving and mask point to the numpy array
@@ -46,6 +58,9 @@ def put_data(fixed,moving,vox):
     k,j,i = vox
     _lib.make_fixed(fixed,x,y,z,i,j,k)
     _lib.make_moving(moving,x,y,z,i,j,k)
+    mask = np.ones_like(fixed)
+    _lib.make_mask(mask,x,y,z,i,j,k)
+    return mask
 
 def get_map():
     """Return all the information in the current map, stored in global variables
@@ -85,6 +100,7 @@ def test():
     v = volumes.load('/home/durant/501/12778',[3])
     v = v.select([0,1]).segment(left=1)
     print "selected"
-    put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
+    mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
     print "putted"
-    _lib.run()
+    _lib.go()
+    return mask,v

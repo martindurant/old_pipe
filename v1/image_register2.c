@@ -1,16 +1,22 @@
 /*
-Compile with:  > gcc -fPIC --shared image_register2.c util.c splines.c -lm -o old_pipe.so
-
-to build graph:
-gcc -fPIC --shared -fdump-rtl-expand image_register2.c util.c  splines.c -lm -o old_pipe.so
-egypt *.expand | dot -Gsize=8.5,11 -Grankdir=LR -Tps -o callgraph.ps
-
+Compile with:  > gcc image_register2.c util.c analyze_io.c splines.c -lm -o output_executable
 =====================================================================
 
   File:  image_register.c
   Author:        D C Barber Date:        15/01/04
-  Modified:      M Froh
-  Librarised:    M Durant
+
+	Program: image_register
+
+	  Usage: image_register  -L LAMDA
+
+		=====================================================================
+		Public Routines:  medlab_interface  matrix_interface
+		=====================================================================
+
+		  History:  This revision  15/01/04
+
+
+This version is now a fixed revision and should be archived as such.
 
 */
 
@@ -23,9 +29,6 @@ egypt *.expand | dot -Gsize=8.5,11 -Grankdir=LR -Tps -o callgraph.ps
 #include "util.h"
 
 /* ===================  global variables  ======================== */
-
-char *flag_list;
-char *HOME = "";
 
 int MSLICES;	/* number of slices in the images */
 int MROWS;	/* number of rows in the image */
@@ -67,6 +70,7 @@ int FAST;
 int NN;
 float ***MOVED;
 float ***FIXED;
+float ***ROI;
 float ***ITEMP;
 float LAMDA;
 float BI;
@@ -98,6 +102,127 @@ double *LAPC;
 
 float ORIGSEP;
 float SLICESEP;
+
+
+float ***new_image(int dimslice,int dimrow,int dimcol)
+{
+	float ***ppp;
+	int row, slice;
+	float *p;
+
+	p=(float *)calloc((size_t)(dimslice*dimrow*dimcol),(size_t)sizeof(float));
+	if(!p)
+		return(NULL);
+
+/* allocate pointer to whole buffer */
+
+	ppp=(float ***)calloc((size_t)dimslice,(size_t)sizeof(float **));
+	if(!ppp)
+	{
+		return(NULL);
+	}
+/* allocate pointers to slices */
+
+	for (slice = 0; slice < dimslice; ++slice)
+	{
+		ppp[slice] = (float **)calloc((size_t)dimrow,(size_t)sizeof(float *));
+		if(!ppp[slice])
+			return(NULL);
+
+/* allocate pointers to rows */
+
+		for (row = 0; row < dimrow; ++row)
+		{
+			ppp[slice][row] = p+row*dimcol+slice*dimrow*dimcol;
+			if(!ppp[slice][row])
+				return(NULL);
+		}
+	}
+	return(ppp);
+}
+
+
+image *fixed,*moving,*out,*mask;
+
+void make_fixed(float *data, int rows,int cols,int slices, float sepx,float sepy,float sepz)
+{
+    extern image *fixed;
+    fixed = (image *)malloc(sizeof(image));
+    fixed->rows = rows;
+    fixed->cols = cols;
+    fixed->slices = slices;
+    fixed->sepx = sepx;
+    fixed->sepy = sepy;
+    fixed->sepz = sepz;
+    fixed->data = data;
+ }
+
+void make_moving(float *data, int rows,int cols,int slices, float sepx,float sepy,float sepz)
+{
+    extern image *moving;
+    moving = (image *)malloc(sizeof(image));
+    moving->rows = rows;
+    moving->cols = cols;
+    moving->slices = slices;
+    moving->sepx = sepx;
+    moving->sepy = sepy;
+    moving->sepz = sepz;
+    moving->data = data;
+}
+
+void make_mask(float *data, int rows,int cols,int slices, float sepx,float sepy,float sepz)
+{
+    extern image *mask;
+    mask = (image *)malloc(sizeof(image));
+    mask->rows = rows;
+    mask->cols = cols;
+    mask->slices = slices;
+    mask->sepx = sepx;
+    mask->sepy = sepy;
+    mask->sepz = sepz;
+    mask->data = data;
+}
+
+float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
+{
+	extern float ORIGSEP;
+	extern float SLICESEP;
+    extern image *fixed,*moving, *mask;
+	float ***p;
+	int i,j,k;
+	image *interp_image,*t_image;
+
+	switch (choice){
+        case 1: t_image = fixed; break;
+        case 2: t_image = moving; break;
+        case 3: t_image = mask;
+	}
+
+    printf("choice %d\n",choice);
+	ORIGSEP = t_image->sepz;
+
+	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
+			interp_image = interpolate_slices(t_image, t_image->sepx);
+			t_image = interp_image;
+	}
+	SLICESEP = t_image->sepz;
+
+	*cols = t_image->cols;
+	*rows = t_image->rows;
+	*slices = t_image->slices;
+
+	p = new_image(*slices,*rows,*cols);
+ 	for (i = 0; i<*slices; i++)
+			for (j=0; j<*rows; j++)
+					for (k=0; k<*cols; k++)
+							p[i][j][k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k];
+	free_image(t_image);
+	return(p);
+}
+
+/* These are some useful initialisation routines derived from similar routines in Numerical Recipies.
+They are essentially routines for setting up matrices and multi-dimensional arrays.
+*/
 
 #define SIGN(a,b) ((b) >= 0.0 ? fabs(a) : -fabs(a))
 #define posneg(a) ((a >= 0.0 ? 1: 0))
@@ -159,6 +284,7 @@ double **dmatrix(long nrh, long nch)
 
 	/* allocate rows and set pointers to them */
 	m[1]=(double *) calloc((size_t)(nrow*ncol+1), (size_t)sizeof(double));
+
 	for(i=2;i<=nrh;i++) m[i]=m[i-1]+ncol;
 
 	/* return pointer to array of pointers to rows */
@@ -181,6 +307,27 @@ int **imatrix(long nrh, long nch)
 
 	/* return pointer to array of pointers to rows */
 	return m;
+}
+
+void free_matrix(float **m)
+/* free a float matrix allocated by matrix() */
+{
+	free(m[1]);
+	free(m);
+}
+
+void free_dmatrix(double **m)
+/* free a double matrix allocated by dmatrix() */
+{
+	free(m[1]);
+	free(m);
+}
+
+void free_imatrix(int **m)
+/* free an int matrix allocated by imatrix() */
+{
+	free(m[1]);
+	free(m);
 }
 
 int **iarray2(int dimcol,int dimrow)
@@ -211,44 +358,6 @@ int **iarray2(int dimcol,int dimrow)
 	}
 	return(pp);
 }
-
-float ***new_image(int dimslice,int dimrow,int dimcol)
-{
-	float ***ppp;
-	int row, slice;
-	float *p;
-
-	p=(float *)calloc((size_t)(dimslice*dimrow*dimcol),(size_t)sizeof(float));
-	if(!p)
-		return(NULL);
-
-/* allocate pointer to whole buffer */
-
-	ppp=(float ***)calloc((size_t)dimslice,(size_t)sizeof(float **));
-	if(!ppp)
-	{
-		return(NULL);
-	}
-/* allocate pointers to slices */
-
-	for (slice = 0; slice < dimslice; ++slice)
-	{
-		ppp[slice] = (float **)calloc((size_t)dimrow,(size_t)sizeof(float *));
-		if(!ppp[slice])
-			return(NULL);
-
-/* allocate pointers to rows */
-
-		for (row = 0; row < dimrow; ++row)
-		{
-			ppp[slice][row] = p+row*dimcol+slice*dimrow*dimcol;
-			if(!ppp[slice][row])
-				return(NULL);
-		}
-	}
-	return(ppp);
-}
-
 
 float **array2(dimcol,dimrow)
 
@@ -316,6 +425,16 @@ int dimcol, dimrow;
 	return(pp);
 }
 
+
+void free_array_2d(float **pp)
+{
+	float *p;
+	p = pp[0];
+	free(p);
+	free(pp);
+}
+
+
 void free_double_array_2d(double **pp)
 {
 	double *p;
@@ -326,11 +445,9 @@ void free_double_array_2d(double **pp)
 
 
 double *make_double_array_1d(dimcol)
-
 int dimcol;
-
 {
-	double *p;
+    double *p;
 
 	p=(double *)malloc(dimcol*sizeof(double));
 	if(!p)
@@ -343,77 +460,23 @@ void free_double_array_1d(double *p)
 	free(p);
 }
 
-image *fixed,*moving,*out;
 
-void make_fixed(float *data, int rows,int cols,int slices, float sepx,float sepy,float sepz)
+
+char *copy(char *a)
 {
-    extern image *fixed;
-    fixed = (image *)malloc(sizeof(image));
-    fixed->rows = rows;
-    fixed->cols = cols;
-    fixed->slices = slices;
-    fixed->sepx = sepx;
-    fixed->sepy = sepy;
-    fixed->sepz = sepz;
-    fixed->data = data;
+	char *c;
+	char *p;
+
+	c = (char *)calloc((strlen(a)+1), sizeof(char));
+	p = c;
+
+	while((*p++ = *a++))
+		;
+
+	return(c);
 }
 
-void make_moving(float *data, int rows,int cols,int slices, float sepx,float sepy,float sepz)
-{
-    extern image *moving;
-    moving = (image *)malloc(sizeof(image));
-    moving->rows = rows;
-    moving->cols = cols;
-    moving->slices = slices;
-    moving->sepx = sepx;
-    moving->sepy = sepy;
-    moving->sepz = sepz;
-    moving->data = data;
-}
 
-float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
-{
-	extern float ORIGSEP;
-	extern float SLICESEP;
-    extern image *fixed,*moving;
-	float ***p;
-	int i,j,k;
-	image *interp_image,*t_image;
-
-	switch (choice){
-        case 1: t_image = fixed; break;
-        case 2: t_image = moving;
-	}
-
-    printf("choice %d\n",choice);
-	ORIGSEP = t_image->sepz;
-
-	printf("%d\n",t_image->slices);
-	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
-			interp_image = interpolate_slices(t_image, t_image->sepx);
-			t_image = interp_image;
-	}
-	printf("%d\n",t_image->slices);
-	SLICESEP = t_image->sepz;
-
-	*cols = t_image->cols;
-	*rows = t_image->rows;
-	*slices = t_image->slices;
-
-	p = new_image(*slices,*rows,*cols);
-
-	for (i = 0; i<*slices; i++)
-			for (j=0; j<*rows; j++)
-					for (k=0; k<*cols; k++)
-							p[i][j][k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k];
-	free_image(t_image);
-	return(p);
-}
-
-long save_image(char *name, float ***p, int cols, int rows, int slices, int cls)
-{
-    return(0);
-}
 
 double snrm(int n, double sx[])
 /* Returns L_2 norm of array sx */
@@ -447,6 +510,11 @@ float *array(int dimcol)
 	return(p);
 }
 
+void free_array(float *p)
+{
+	free(p);
+}
+
 int *iarray(int dimcol)
 {
  	int *p;
@@ -457,6 +525,12 @@ int *iarray(int dimcol)
 
 	return(p);
 }
+
+void free_iarray(int *p)
+{
+	free(p);
+}
+
 
 /* ====================  functions ================================*/
 #include <math.h>
@@ -612,6 +686,8 @@ void lap_line(int ip, int imax, int jmax, int kmax, int *p)
 
 	extern int ND;
 
+	if (ND == 4)
+	{
 		ipp = ip - 1;
 		k = ipp/(imax*jmax);
 		ipp = ipp - (k*imax*jmax);
@@ -628,8 +704,23 @@ void lap_line(int ip, int imax, int jmax, int kmax, int *p)
 						p[ipp] = 0;
 					ipp++;
 				}
-
-
+	}
+	else
+	{
+		ipp = ip - 1;
+		j = ipp/(imax);
+		i = ipp - j*imax;
+		ipp = 0;
+		for (y = j-1; y <= j+1; y++)
+			for (x = i-1; x <= i+1; x++)
+			{
+				if (x >= 0 && x < imax && y >= 0 && y < jmax )
+					p[ipp] = x + y*imax +1;
+				else
+					p[ipp] = 0;
+				ipp++;
+			}
+	}
 }
 
 void make_pointers()
@@ -1031,7 +1122,6 @@ float brent(float ax, float bx, float cx, float tol)
 			}
 		}
 	}
-	return(x);
 }
 #undef ITMAX
 #undef CGOLD
@@ -1095,6 +1185,122 @@ void invert(double **a,double **b, int size)
 	free_double_array_2d(h);
 	free_double_array_1d(em);
 	return;
+}
+
+/* ****************************************************
+ * void extract_image(float ***pic, float ***epic)
+ *
+ * input: 3D image pic, int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX
+ * output: 3D image epic
+ *
+ * Stores the subregion of pic, delimited by
+ * [SMIN,SMAX]*[RMIN,RMAX]*[CMIN,CMAX] in epic. Presumably assumes
+ * that space has already been allocated for epic. Also, use of variables
+ * MCOLS, MROWS, MSLICES, pslices, prows, pcols seems irrelevant.
+ * ***************************************************/
+
+void extract_image(float ***pic, float ***epic)
+{
+	int col, row, slice;
+
+	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
+    for (slice = SMIN; slice <= SMAX; slice++)
+		for (row = RMIN; row <= RMAX; row++)
+			for (col = CMIN; col <= CMAX; col++)
+				epic[slice - SMIN][row - RMIN][col - CMIN] = pic[slice][row][col];
+
+}
+
+/*******************************************************
+ * void insert_image(float ***epic, float ***pic)
+ *
+ * input: 3D images epic and pic
+ * output: modifies pic
+ *
+ * Overwrites subregion of pic delimited by
+ * [SMIN,SMAX]*[RMIN,RMAX]*[CMIN,CMAX] with contents of epic.
+ * Use of variables MCOLS, MROWS, MSLICES, gx, gy, gz, and abg seems
+ * irrelevant.
+ * *****************************************************/
+
+void insert_image(float ***epic, float ***pic)
+{
+	int col, row, slice;
+	int pslices, prows, pcols;
+
+	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
+
+	pslices = SMAX - SMIN + 1;
+	prows = RMAX - RMIN + 1;
+	pcols = CMAX - CMIN + 1;
+
+	for (slice = 0; slice < pslices; slice++)
+		for (row = 0; row < prows; row++)
+			for (col = 0; col < pcols; col++)
+				pic[slice + SMIN][row + RMIN][col + CMIN] = epic[slice][row][col];
+
+}
+
+void smooth_image(float ***pa)
+{
+    float ***panew;
+    int slice, row, col;
+
+    extern int MSLICES;
+    extern int MROWS;
+    extern int MCOLS;
+
+    panew = new_image(MSLICES, MROWS, MCOLS);
+
+    if (MSLICES > 0)
+    {
+
+    for (slice = 1; slice < (MSLICES-1); ++slice)
+        for (row = 1; row < (MROWS-1); ++row)
+            for (col = 1; col < (MCOLS-1); ++col)
+			{
+				/*
+                panew[slice][row][col] = pa[slice][row][col]/3.0 + (
+                        pa[slice+1][row][col] + pa[slice-1][row][col] +
+                        pa[slice][row+1][col] + pa[slice][row-1][col] +
+                        pa[slice][row][col+1] + pa[slice][row][col-1])/9.0;
+				*/
+                panew[slice][row][col] = (
+                        pa[slice+1][row][col] + pa[slice-1][row][col] +
+                        pa[slice][row+1][col] + pa[slice][row-1][col] +
+                        pa[slice][row][col+1] + pa[slice][row][col-1])/6.0;
+			}
+    for (slice = 1; slice < (MSLICES-1); ++slice)
+        for (row = 1; row < (MROWS-1); ++row)
+            for (col = 1; col < (MCOLS-1); ++col)
+			{
+				//printf("Value at %d,%d,%d: %f\n",col,row,slice,pa[slice][row][col]);
+                pa[slice][row][col] = panew[slice][row][col];
+			}
+    delete_image(panew);
+    }
+    else
+    {
+        for (row = 0; row < MROWS; ++row)
+        {
+        for (col = 0; col < (MCOLS-1); ++col)
+            pa[0][row][col] = (pa[0][row][col] + pa[0][row][col+1])/2.0;
+
+        for (col = (MCOLS-1); col > 0; --col)
+            pa[0][row][col] = (pa[0][row][col] + pa[0][row][col-1])/2.0;
+         }
+
+        for (col = 0; col < MCOLS; ++col)
+        {
+        for (row = 0; row < (MROWS-1); ++row)
+            pa[0][row][col] = (pa[0][row][col] + pa[0][row+1][col])/2.0;
+
+        for (row = (MROWS-1); row > 0; --row)
+            pa[0][row][col] = (pa[0][row][col] + pa[0][row-1][col])/2.0;
+         }
+
+    }
+
 }
 
 /* *****************************************************
@@ -1193,12 +1399,26 @@ void make_mesh_data()
 	extern int *NO;
 	extern float *BL;
 
+	if (ND == 4)
+	{
 		QL = 108;
 		QC = 27;
 		QO = 14;
 		QR = 32;
 		NODES_PER_ELEMENT = 8;
 		ELEMENTS_PER_NODE = 8;
+	}
+	else
+	{
+		QL = 27;
+		QC = 9;
+		QO = 5;
+		QR = 12;
+		NODES_PER_ELEMENT = 4;
+		ELEMENTS_PER_NODE = 4;
+	}
+
+
 	xp = ceil((MCOLS/((float)SIDE)))/2.0;
 	xmax = xp*SIDE;
 	xmin = -xmax;
@@ -1209,12 +1429,21 @@ void make_mesh_data()
 	ymin = -ymax;
 	YP = 2.0*yp + 1;
 
+	if (ND == 4)
+	{
 		zp = ceil((MSLICES/((float)SIDE)))/2.0;
 		zmax = zp*SIDE;
 		zmin = -zmax;
 		ZP = 2.0*zp + 1;
 		NUMBER_OF_ELEMENTS = (XP-1)*(YP-1)*(ZP-1);
 		NUMBER_OF_NODES = XP*YP*ZP;
+	}
+	else
+	{
+		ZP = 1;
+		NUMBER_OF_ELEMENTS = (XP-1)*(YP-1);
+		NUMBER_OF_NODES = XP*YP;
+	}
 
 	BL = vector(NUMBER_OF_NODES*ND);
 	P = dmatrix(NUMBER_OF_NODES*ND,QL);
@@ -1259,6 +1488,9 @@ void make_mesh_data()
 	ELEMENT_NODES = iarray2(NODES_PER_ELEMENT, NUMBER_OF_ELEMENTS);
 	NODE_ELEMENTS = iarray2(ELEMENTS_PER_NODE, NUMBER_OF_NODES);
 
+
+	if (ND == 4)
+	{
 		p = 0;
 		step = SIDE;
 		for (z = zmin; z <= zmax+step/2; z = z + step)
@@ -1308,8 +1540,49 @@ void make_mesh_data()
 					}
 
 		}
+	}
+	else
+	{
+		p = 0;
+		step = SIDE;
+		for (y = ymin; y <= ymax+step/2; y = y + step)
+			for (x = xmin; x <= xmax+step/2; x = x + step)
+			{
+				XC[p] = x + MCOLS/2 + 0.5;
+				YC[p] = y + MROWS/2 + 0.5;
+				ZC[p] = 0.0;
+				p++;
+			}
 
+		p = 0;
+		for (jp = 0; jp < YP-1; jp++)
+			for (ip = 0; ip < XP-1; ip++)
+			{
+				ELEMENT_NODES[p][0] = pnt(ip, jp, 0);
+				ELEMENT_NODES[p][1] = pnt(ip+1, jp, 0);
+				ELEMENT_NODES[p][2] = pnt(ip, jp+1, 0);
+				ELEMENT_NODES[p][3] = pnt(ip+1, jp+1, 0);
+				p++;
+			}
 
+		for (n = 0; n < NUMBER_OF_NODES; n++)
+		{
+			get_cords(n, XP, YP, ZP, &ip, &jp, &kp);
+			p = 0;
+			for (j = -1; j <= 0; j++)
+				for (i = -1; i <= 0; i++)
+				{
+					col = ip + i;
+					row = jp + j;
+					if (col < 0)col = 0;
+					if (col > XP - 2)col = XP - 2;
+					if (row < 0)row = 0;
+					if (row > YP - 2)row = YP - 2;
+					NODE_ELEMENTS[n][p] = col + row*(XP-1);
+					p++;
+				}
+		}
+	}
 }
 
 
@@ -1576,6 +1849,35 @@ void update_3d(float *U, float *V, float *W, float *A)
 
 }
 
+float normalise(float ***p, float ***roi, float val)
+{
+	int col, row, slice;
+	float tot;
+	long num;
+
+	extern int MCOLS, MROWS, MSLICES;
+	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
+
+	tot = 0.0;
+	num = 0;
+	for (slice = SMIN; slice <= SMAX; slice++)
+		for (row = RMIN; row <= RMAX; row++)
+			for (col = CMIN; col <= CMAX; col++)
+				if (roi[slice][row][col] != 0)
+				{
+					tot += fabs(p[slice][row][col]);
+					num++;
+				}
+	tot = tot/num;
+	tot = val/tot;
+
+	for (slice = 0; slice < MSLICES; slice++)
+		for (row = 0; row < MROWS; row++)
+			for (col = 0; col < MCOLS; col++)
+				p[slice][row][col] *= tot;
+	return(tot);
+}
+
 float trilint(float r, float s, float t, float ***p)
 
 {
@@ -1802,6 +2104,7 @@ void interpolate_image_amp_3d(float ***pic)
 
 }
 
+
 void where_in_list(int *N, int *qp, int *pt)
 {
 	int t, p, k;
@@ -1824,7 +2127,7 @@ void where_in_list(int *N, int *qp, int *pt)
 	return;
 }
 
-float MI(float ***fixed, float ***registered)
+float MI(float ***fixed, float***roi, float ***registered)
 
 {
 	int row,col,slice;
@@ -1854,7 +2157,8 @@ float MI(float ***fixed, float ***registered)
 	for (slice = SMIN; slice <= SMAX; slice++)
 		for (row = RMIN; row <= RMAX; row++)
 			for (col = CMIN; col <= CMAX; col++)
-
+				if (roi[slice][row][col] != 0)
+				{
 					if (fixed[slice][row][col] > maxf)
 						maxf = fixed[slice][row][col];
 					if (fixed[slice][row][col] < minf)
@@ -1863,17 +2167,18 @@ float MI(float ***fixed, float ***registered)
 						maxr = registered[slice][row][col];
 					if (registered[slice][row][col] < minr)
 						minr = registered[slice][row][col];
-
+				}
 
 
 	for (slice = SMIN; slice <= SMAX; slice++)
 		for (row = RMIN; row <= RMAX; row++)
 			for (col = CMIN; col <= CMAX; col++)
-
+				if (roi[slice][row][col] != 0)
+				{
 					k = (int)((registered[slice][row][col]-minr)*62/(maxr-minr));
 					m = (int)((fixed[slice][row][col]-minf)*62/(maxf-minf));
 					TDH[k][m] += 1;
-
+				}
 
 	N = MROWS*MCOLS*MSLICES;
 
@@ -2012,7 +2317,7 @@ void pack_matrices()
 }
 
 
-int register_image(float ***fixed, float ***registered)
+int register_image_full_3d(float ***fixed, float ***roi, float ***registered)
 {
     int row, col, slice;
     int m;
@@ -2178,7 +2483,8 @@ int register_image(float ***fixed, float ***registered)
 									w[5] = wr*(1-ws)*wt;
 									w[6] = ws*(1-wr)*wt;
 									w[7] = ws*wr*wt;
-
+									if (roi[slice][row][col] >= 1.0)
+									{
 										grad[0] = (fixed[slice][row][col+1]-fixed[slice][row][col-1]);
 										grad[0] += (registered[slice][row][col+1]-registered[slice][row][col-1]);
 										grad[0] /= 4.0;
@@ -2207,7 +2513,7 @@ int register_image(float ***fixed, float ***registered)
 												for (i = j; i < QR; i++)
 													PTP[j][i] += qqj*q[i];
 											}
-
+									}
 
 								}
 								for (j = 0; j < QR; j++)
@@ -2317,7 +2623,7 @@ int register_image(float ***fixed, float ***registered)
 
 				interpolate_image_3d(registered);
 
-				mi = MI(fixed,registered);
+				mi = MI(fixed,roi,registered);
 				mit = mi;
 
 				if (FAST == 1) {
@@ -2397,11 +2703,21 @@ int register_image(float ***fixed, float ***registered)
 	return(0);
 }
 
-void get_map_3d(float ***fixed)
+int register_image(float ***fixed, float ***roi, float ***registered)
+{
+	int ans;
+
+	ans = register_image_full_3d(fixed, roi, registered);
+
+	return(ans);
+}
+
+void get_map_3d(float ***fixed, float ***roi)
 {
     int row, col, slice;
     int k;
- 	int p;
+    int *pp;
+	int p;
  	int na, nb, nc, nd, ne, nf, ng, nh;
 	float xoff, yoff, zoff;
 	int ip, jp, kp;
@@ -2418,6 +2734,7 @@ void get_map_3d(float ***fixed)
 	extern int SIDE;
 	extern int REDUCE;
 
+    pp = iarray(NODES_PER_ELEMENT);
 	PMAP = ivector(NUMBER_OF_NODES*ND);
 
 	for (k = 1; k <= NUMBER_OF_NODES*ND; k++)
@@ -2447,7 +2764,8 @@ void get_map_3d(float ***fixed)
 						for (col = xoff; col < xoff+SIDE; col++)
 							if (col >= 0 && col < MCOLS && row >= 0 && row < MROWS && slice >= 0 && slice < MSLICES)
 							{
-
+								if (roi[slice][row][col] > 0.0)
+								{
 									MAP[na]++;
 									MAP[nb]++;
 									MAP[nc]++;
@@ -2456,7 +2774,7 @@ void get_map_3d(float ***fixed)
 									MAP[nf]++;
 									MAP[ng]++;
 									MAP[nh]++;
-
+								}
 							}
 			}
 
@@ -2482,7 +2800,7 @@ void get_map_3d(float ***fixed)
 	NN = p-1;
 }
 
-void get_B_and_lamda_3d(float ***fixed)
+void get_B_and_lamda_3d(float ***fixed, float ***roi)
 {
     int row, col, slice;
     int i, j, k;
@@ -2527,16 +2845,12 @@ void get_B_and_lamda_3d(float ***fixed)
 	extern float *BL;
 	extern int *NO;
 
-    printf("getmap\n");
-	get_map_3d(fixed);
-    printf("makeq\n");
+	get_map_3d(fixed, roi);
 	make_q();
 
-    printf("makarrs %d %d\n",NODES_PER_ELEMENT,NUMBER_OF_NODES);
     w = array(NODES_PER_ELEMENT);
     pp = iarray(NODES_PER_ELEMENT);
 
-    printf("startvals\n");
 	for (j = 1; j <= NUMBER_OF_NODES*ND; j++)
 		for (i = 1; i <= QL; i++)
 			P[j][i] = 0.0;
@@ -2545,8 +2859,6 @@ void get_B_and_lamda_3d(float ***fixed)
 	  for (jp = 0; jp < YP-1; jp++)
 		for (ip = 0; ip < XP-1; ip++)
 		{
-		    printf("inloop\n");
-
 			na = pnt(ip, jp, kp);
 			nb = pnt(ip+1, jp, kp);
 			nc = pnt(ip, jp+1, kp);
@@ -2585,7 +2897,6 @@ void get_B_and_lamda_3d(float ***fixed)
 					for (col = xoff; col < xoff+SIDE; col++)
 						if (col >= 0 && col < MCOLS && row >= 0 && row < MROWS && slice >= 0 && slice < MSLICES)
 						{
-						    printf("innerloop\n");
 							wt=(slice-zoff+0.5)/SIDE;
 							ws=(row-yoff+0.5)/SIDE;
 							wr=(col-xoff+0.5)/SIDE;
@@ -2597,21 +2908,17 @@ void get_B_and_lamda_3d(float ***fixed)
 							w[5] = wr*(1-ws)*wt;
 							w[6] = ws*(1-wr)*wt;
 							w[7] = ws*wr*wt;
-
-							    printf("%d %d %d\n",slice,row,col);
+							if (roi[slice][row][col] >= 1.0)
+							{
 								grad[0] = (fixed[slice][row][col+1]-fixed[slice][row][col-1])/(float)2.0;
-                                printf("1\n");
 								grad[1] = (fixed[slice][row+1][col]-fixed[slice][row-1][col])/(float)2.0;
-                                printf("2\n");
 								grad[2] = (fixed[slice+1][row][col]-fixed[slice-1][row][col])/(float)2.0;
-                                printf("3\n");
 								grad[3] = -fixed[slice][row][col];
 
 								a = 0;
 								for (i = 0; i < 4; i++)
 									for (j = 0; j < 8; j++)
 										q[a++] = w[j]*grad[i];
-                                printf("4\n");
 
 
 								for (j = 0; j < QR; j++)
@@ -2619,9 +2926,8 @@ void get_B_and_lamda_3d(float ***fixed)
 									qqj = q[j];
 									for (i = j; i < QR; i++)
 										PTP[j][i] += qqj*q[i];
-                                printf("5\n");
 								}
-
+							}
 						}
 
 						for (j = 0; j < QR; j++)
@@ -2687,15 +2993,120 @@ void get_B_and_lamda_3d(float ***fixed)
 
 }
 
-void run()
+void crop_roi(float ***roi)
+{
+	int col, row, slice;
+
+	extern int ND;
+	extern int MCOLS, MROWS, MSLICES;
+
+		for (row = 0; row < MROWS; row++)
+			for (col = 0; col < MCOLS; col++)
+				roi[0][row][col] = roi[MSLICES-1][row][col] = roi[1][row][col] = roi[MSLICES-2][row][col] = 0;
+
+	for (slice = 0; slice < MSLICES; slice++)
+		for (col = 0; col < MCOLS; col++)
+			roi[slice][0][col] = roi[slice][MROWS-1][col] = roi[slice][1][col] = roi[slice][MROWS-2][col] = 0;
+
+	for (row = 0; row < MROWS; row++)
+		for (slice = 0; slice < MSLICES; slice++)
+			roi[slice][row][0] = roi[slice][row][MCOLS-1] = roi[slice][row][1] = roi[slice][row][MCOLS-2] = 0;
+
+	for (slice = 0; slice < MSLICES; slice++)
+		for (row = 0; row < MROWS; row++)
+			for (col = 0; col < MCOLS; col++)
+				if (roi[slice][row][col] > 0.5)
+					roi[slice][row][col] = 1.0;
+				else
+					roi[slice][row][col] = 0.0;
+}
+
+void get_limits_roi(float ***roi)
+{
+    int col, row, slice;
+    int count;
+
+	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
+    extern int MSLICES;
+	extern int MROWS;
+	extern int MCOLS;
+	extern int ND;
+
+
+		SMIN = -1;
+		SMAX = -1;
+		for (slice = 0; slice < MSLICES; ++slice)
+		{
+			count = 0;
+			for (row = 0; row < MROWS; ++row)
+				for (col = 0; col < MCOLS; ++col)
+					if (roi[slice][row][col] != 0)
+						count++;
+
+			if (count != 0 && SMIN < 0)
+				SMIN = slice;
+			else if (count == 0 && SMIN >= 0)
+			{
+				SMAX = slice -1;
+				break;
+			}
+		}
+		if (SMAX == -1)
+				SMAX = MSLICES-1;
+
+
+    RMIN = -1;
+    RMAX = -1;
+    for (row = 0; row < MROWS; ++row)
+    {
+        count = 0;
+		for (slice = 0; slice < MSLICES; ++slice)
+			for (col = 0; col < MCOLS; ++col)
+				if (roi[slice][row][col] != 0)
+					count++;
+
+		if (count != 0 && RMIN < 0)
+			RMIN = row;
+		else if (count == 0 && RMIN >= 0)
+		{
+			RMAX = row -1;
+			break;
+		}
+    }
+	if (RMAX == -1)
+			RMAX = MROWS-1;
+
+    CMIN = -1;
+    CMAX = -1;
+    for (col = 0; col < MCOLS; ++col)
+    {
+        count = 0;
+		for (row = 0; row < MROWS; ++row)
+			for (slice = 0; slice < MSLICES; ++slice)
+				if (roi[slice][row][col] != 0)
+					count++;
+
+		if (count != 0 && CMIN < 0)
+			CMIN = col;
+		else if (count == 0 && CMIN >= 0)
+		{
+			CMAX = col -1;
+			break;
+		}
+    }
+	if (CMAX == -1)
+			CMAX = MCOLS-1;
+
+}
+
+void go(int argc, char *argv[])
 {
     float ***registered;
-	int k;
+	float ***ROI;
 	int ncols, nrows, nslices;
 	float off;
 
 	extern float ***FIXED;
-	extern float ***MOVED;
     extern int MCOLS, MROWS, MSLICES;
 	extern int SIDE;
 	extern float CLIMIT;
@@ -2703,7 +3114,6 @@ void run()
 	extern float *UT, *VT, *WT, *AT;
 	extern float LAMDA;
 	extern int REDUCE, SETLAM;
-	extern int ITERM;
 	extern int PACK;
 	extern int FAST;
 	extern float ***MOVED;
@@ -2712,17 +3122,14 @@ void run()
 	extern float K;
 	extern double LINTOL;
 	extern float *XC;
-	extern int MSM, FSM;
+	extern int FSM;
 	extern int S;
 	extern float **TDH;
 	extern float *BL;
 	extern float MIMAX;
 	extern int MUTUAL;
-
-/* gets the command line arguments into a behind the scenes form*/
-
-	extern int optind, opterr; /* these are the global vars declared on getopt's source */
-	extern char *optarg;
+	extern image *mask;
+	int i,j,k;
 
 	REDUCE = 0;
 	ITERM = 0;
@@ -2734,50 +3141,47 @@ void run()
 	LAMDA = 64.0; /* -L opt */
 	PACK = 0;     /* -p opt */
 	FSM = 0;      /* -s opt */
-	MSM = 0;      /* -m opt */
 	TDH = array2(64,64);
 	MR = 100;                                /* -X opt */
 	CLIMIT = 0.1;                            /* -t opt */
 	K = 1.0;
-
-    printf("started\n");
-
-    ND = 4;
-    FIXED = load_image_alt(&ncols, &nrows, &nslices, 1);
-    MOVED = load_image_alt(&MCOLS, &MROWS, &MSLICES, 2);
-    printf("loaded\n");
-    printf("%d %d %d %d %d %d \n",MCOLS,MROWS,MSLICES,ncols,nrows,nslices);
-
-    if (ncols != MCOLS || nrows != MROWS || MSLICES != nslices)
-    {
-        printf("fixed image different in size to mask\n");
-        return ;
-    }
-
+	ROI = load_image_alt(&MCOLS, &MROWS, &MSLICES, 3);
 	ND = 4;
-	printf("meshing\n");
+    FIXED =  load_image_alt(&ncols, &nrows, &nslices, 1);
+	MOVED = load_image_alt(&ncols, &nrows, &nslices, 2);
+	S = 1;
+
+	crop_roi(ROI);
+	get_limits_roi(ROI);
+	SIDE = (int)(SIDE/S);
+	CLIMIT /= S;
+
 	make_mesh_data();
 
-	printf("Blam\n");
-	get_B_and_lamda_3d(FIXED);
-	printf("New image\n");
+	normalise(FIXED, ROI, 1.0);
+	if (FSM > 0)
+		for (k = 0; k < FSM; k++)
+			smooth_image(FIXED);
+
+	get_B_and_lamda_3d(FIXED,ROI);
+
+
+	normalise(MOVED, ROI, 1.0);
+
 	registered = new_image(MSLICES, MROWS, MCOLS);
-
-	printf("firstcomp\n");
 	first_comp();
-	printf("BK = %f\n" ,BK);
 
-	MIMAX = MI(FIXED, MOVED);
+	MIMAX = MI(FIXED, ROI, MOVED);
 	printf("starting mutual information = %f\n",MIMAX);
-
-	if (register_image(FIXED, registered) == 1)
-	{
-		printf("registration failed\n");
-		exit(1);
-	}
+	register_image(FIXED, ROI, registered);
 
 	delete_image(FIXED);
+	delete_image(ROI);
 	delete_image(MOVED);
+
+/* now do final interpolation */
+
+	MOVED = load_image_alt(&MCOLS, &MROWS, &MSLICES, 2);
 
 	off = 0.5;
 	for (k = 0; k < NUMBER_OF_NODES; k++)
@@ -2794,8 +3198,10 @@ void run()
 	SIDE = SIDE*S;
 
 	registered = new_image(MSLICES, MROWS, MCOLS);
-	printf("final interp");
-
 	interpolate_image_3d(registered);
-	//registered is the output, a ***float
+
+ 	for (i = 0; i<MSLICES; i++)
+			for (j=0; j<MROWS; j++)
+					for (k=0; k<MCOLS; k++)
+							mask->data[i*MROWS*MCOLS+j*MCOLS+k] = registered[i][j][k];
 }

@@ -1,7 +1,6 @@
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
-#include "analyze_io.h"
 #include "splines.h"
 #include <math.h>
 #include <stdio.h>
