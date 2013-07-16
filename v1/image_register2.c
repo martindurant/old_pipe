@@ -198,7 +198,6 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
         case 3: t_image = mask;
 	}
 
-    printf("choice %d\n",choice);
 	ORIGSEP = t_image->sepz;
 
 	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
@@ -216,7 +215,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 			for (j=0; j<*rows; j++)
 					for (k=0; k<*cols; k++)
 							p[i][j][k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k];
-	free_image(t_image);
+	//free_image(t_image);
 	return(p);
 }
 
@@ -1122,6 +1121,7 @@ float brent(float ax, float bx, float cx, float tol)
 			}
 		}
 	}
+	return(x);
 }
 #undef ITMAX
 #undef CGOLD
@@ -3099,12 +3099,55 @@ void get_limits_roi(float ***roi)
 
 }
 
-void go(int argc, char *argv[])
+void init()
+{
+    extern int MCOLS, MROWS, MSLICES;
+	extern int SIDE;
+	extern float CLIMIT;
+	extern int NUMBER_OF_NODES;
+	extern float *UT, *VT, *WT, *AT;
+	extern float LAMDA;
+	extern int REDUCE, SETLAM;
+	extern int PACK;
+	extern int FAST;
+	extern float ***MOVED;
+	extern float B;
+	extern int ND;
+	extern float K;
+	extern double LINTOL;
+	extern float *XC;
+	extern int FSM;
+	extern int S;
+	extern float **TDH;
+	extern float *BL;
+	extern float MIMAX;
+	extern int MUTUAL;
+	REDUCE = 0;
+	ITERM = 0;
+	SETLAM = 0;
+	MUTUAL = 0;
+	LINTOL = 0.01;
+
+	SIDE = 16;     /* -g opt */
+	LAMDA = 64.0; /* -L opt */
+	PACK = 0;     /* -p opt */
+	FSM = 0;      /* -s opt */
+	TDH = array2(64,64);
+	MR = 100;                                /* -X opt */
+	CLIMIT = 0.1;                            /* -t opt */
+	K = 1.0;
+ 	ND = 4;
+	S = 1;
+
+}
+
+int go(int argc, char *argv[])
 {
     float ***registered;
 	float ***ROI;
 	int ncols, nrows, nslices;
 	float off;
+	image *t_image,*interp_image;
 
 	extern float ***FIXED;
     extern int MCOLS, MROWS, MSLICES;
@@ -3131,25 +3174,10 @@ void go(int argc, char *argv[])
 	extern image *mask;
 	int i,j,k;
 
-	REDUCE = 0;
-	ITERM = 0;
-	SETLAM = 0;
-	MUTUAL = 0;
-	LINTOL = 0.01;
-
-	SIDE = 16;     /* -g opt */
-	LAMDA = 64.0; /* -L opt */
-	PACK = 0;     /* -p opt */
-	FSM = 0;      /* -s opt */
-	TDH = array2(64,64);
-	MR = 100;                                /* -X opt */
-	CLIMIT = 0.1;                            /* -t opt */
-	K = 1.0;
 	ROI = load_image_alt(&MCOLS, &MROWS, &MSLICES, 3);
-	ND = 4;
     FIXED =  load_image_alt(&ncols, &nrows, &nslices, 1);
 	MOVED = load_image_alt(&ncols, &nrows, &nslices, 2);
-	S = 1;
+	printf("%d %d %d\n",MSLICES,MROWS,MCOLS);
 
 	crop_roi(ROI);
 	get_limits_roi(ROI);
@@ -3196,12 +3224,31 @@ void go(int argc, char *argv[])
 	}
 
 	SIDE = SIDE*S;
+	printf("%d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS);
 
 	registered = new_image(MSLICES, MROWS, MCOLS);
 	interpolate_image_3d(registered);
-
- 	for (i = 0; i<MSLICES; i++)
+	t_image = alloc_image(MCOLS, MROWS, MSLICES);
+	for (i = 0; i<MSLICES; i++)
 			for (j=0; j<MROWS; j++)
 					for (k=0; k<MCOLS; k++)
-							mask->data[i*MROWS*MCOLS+j*MCOLS+k] = registered[i][j][k];
+						t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = registered[i][j][k];
+
+	t_image->sepx = t_image->sepy = t_image->sepz = SLICESEP;
+	printf("%d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS);
+
+	if (ORIGSEP != SLICESEP && MSLICES > 1) {
+			interp_image = interpolate_slices(t_image,ORIGSEP);
+			free_image(t_image);
+			t_image = interp_image;
+	}
+	printf("%d %d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS,t_image->slices);
+	nslices = t_image->slices;
+	for (i = 0; i<nslices; i++)
+            {printf("%d \n",i);
+			for (j=0; j<MROWS; j++)
+					for (k=0; k<MCOLS; k++)
+						mask->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] ;
+            }
+    return(0);
 }

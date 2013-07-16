@@ -25,8 +25,6 @@ import numpy as np
 import ctypes as ct
 here = os.path.dirname(os.path.abspath(__file__)) + os.sep
 
-c_fl_p = ct.POINTER(ct.c_float)
-c_i_p = ct.POINTER(ct.c_int)
 nd = np.ctypeslib.ndpointer(np.float32,3,None,'C')
 _lib = ct.cdll.LoadLibrary(here+'_old_pipe.so')
 
@@ -36,7 +34,8 @@ _lib.make_moving.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
 _lib.make_mask.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
-
+_lib.go.restype = ct.c_int
+_lib.init()
 """for each Image structure, the first three elements are ints giving
 the array size, and the next is a pointer to the data; the ints are
 int32, and the pointer to the data is at fixed+16 bytes, also an int32
@@ -76,7 +75,7 @@ def get_map():
     nnodes, XP, YP, ZP, SIDE, MCOLS, MROWS, MSLICES = [ct.c_int.in_dll(_lib,u).value for u in
         ('NUMBER_OF_NODES','XP', 'YP', 'ZP', 'SIDE', 'MCOLS', 'MROWS', 'MSLICES')]
     ints = [nnodes, XP, YP, ZP, SIDE, MCOLS, MROWS, MSLICES]
-    strs = [ct.string_at(c_fl_p.in_dll(_lib,u)) for u  in 
+    strs = [ct.string_at(ct.c_int.in_dll(_lib,u),size=nnodes*4) for u  in 
         ('XC', 'YC', 'ZC', 'MAP', 'UT', 'VT', 'WT', 'AT')]
     return ints,strs
 
@@ -95,12 +94,12 @@ def put_map(ints,strs):
         st = ct.create_string_buffer(value)
         ct.c_int.in_dll(_lib,label).value = ct.byteref(st)
 
+from prog import volumes
+v = volumes.load('/home/durant/501/12778',[3])
+v = v.select([0,1]).segment(left=1)
+
 def test():
-    from prog import volumes
-    v = volumes.load('/home/durant/501/12778',[3])
-    v = v.select([0,1]).segment(left=1)
-    print "selected"
     mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
-    print "putted"
+    mask.shape,v.shape
     _lib.go()
-    return mask,v
+    return mask
