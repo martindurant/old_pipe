@@ -72,6 +72,7 @@ float ***MOVED;
 float ***FIXED;
 float ***ROI;
 float ***ITEMP;
+float ***registered;
 float LAMDA;
 float BI;
 float *BL;
@@ -2703,14 +2704,6 @@ int register_image_full_3d(float ***fixed, float ***roi, float ***registered)
 	return(0);
 }
 
-int register_image(float ***fixed, float ***roi, float ***registered)
-{
-	int ans;
-
-	ans = register_image_full_3d(fixed, roi, registered);
-
-	return(ans);
-}
 
 void get_map_3d(float ***fixed, float ***roi)
 {
@@ -3141,13 +3134,86 @@ void init()
 
 }
 
-int go(int argc, char *argv[])
+void pack(float ***pic, float ***ppic)
 {
-    float ***registered;
+	int col, row, slice;
+	int pcols, prows, pslices;
+	float mx;
+
+	extern int MCOLS, MROWS, MSLICES;
+
+	pslices = MSLICES/2;
+	prows = MROWS/2;
+	pcols = MCOLS/2;
+
+	if (pslices ==0)
+	{
+		pslices = 1;
+		mx = 4;
+	}
+	else
+		mx = 8;
+
+
+	if (pslices > 1)
+		MSLICES = pslices*2;
+
+	MROWS = prows*2;
+	MCOLS = pcols*2;
+
+	for (slice = 0; slice < pslices; slice++)
+		for (row = 0; row < prows; row++)
+			for (col = 0; col < pcols; col++)
+				ppic[slice][row][col] = 0;
+
+	for (slice = 0; slice < MSLICES; slice++)
+		for (row = 0; row < MROWS; row++)
+			for (col = 0; col < MCOLS; col++)
+				ppic[slice/2][row/2][col/2] += pic[slice][row][col];
+
+	for (slice = 0; slice < pslices; slice++)
+		for (row = 0; row < prows; row++)
+			for (col = 0; col < pcols; col++)
+				ppic[slice][row][col] /= mx;
+}
+
+
+void resample()
+{
+    extern float ***registered;
+    image *t_image,*interp_image;
+	int i,j,k;
+	int nslices;
+
+    registered = new_image(MSLICES, MROWS, MCOLS);
+	interpolate_image_3d(registered);
+	t_image = alloc_image(MCOLS, MROWS, MSLICES);
+	for (i = 0; i<MSLICES; i++)
+			for (j=0; j<MROWS; j++)
+					for (k=0; k<MCOLS; k++)
+						t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = registered[i][j][k];
+
+	t_image->sepx = t_image->sepy = t_image->sepz = SLICESEP;
+
+	if (ORIGSEP != SLICESEP && MSLICES > 1) {
+			interp_image = interpolate_slices(t_image,ORIGSEP);
+			free_image(t_image);
+			t_image = interp_image;
+	}
+	nslices = t_image->slices;
+	for (i = 0; i<nslices; i++)
+			for (j=0; j<MROWS; j++)
+					for (k=0; k<MCOLS; k++)
+						mask->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] ;
+
+}
+
+void go(int argc, char *argv[])
+{
+    extern float ***registered;
 	float ***ROI;
 	int ncols, nrows, nslices;
 	float off;
-	image *t_image,*interp_image;
 
 	extern float ***FIXED;
     extern int MCOLS, MROWS, MSLICES;
@@ -3172,12 +3238,46 @@ int go(int argc, char *argv[])
 	extern float MIMAX;
 	extern int MUTUAL;
 	extern image *mask;
-	int i,j,k;
+	int k;
+	int pcols, prows, pslices;
 
 	ROI = load_image_alt(&MCOLS, &MROWS, &MSLICES, 3);
     FIXED =  load_image_alt(&ncols, &nrows, &nslices, 1);
 	MOVED = load_image_alt(&ncols, &nrows, &nslices, 2);
-	printf("%d %d %d\n",MSLICES,MROWS,MCOLS);
+	S = 1;
+	if (PACK > 0)
+	{
+		for (k = 0; k < PACK; k++)
+		{
+			pslices = MSLICES/2;
+			prows = MROWS/2;
+			pcols = MCOLS/2;
+
+			if (pslices ==0)
+				pslices = 1;
+
+			ITEMP = new_image(pslices, prows, pcols);
+			pack(ROI, ITEMP);
+			delete_image(ROI);
+			ROI = ITEMP;
+
+			ITEMP = new_image(pslices, prows, pcols);
+			pack(FIXED, ITEMP);
+			delete_image(FIXED);
+			FIXED = ITEMP;
+
+			ITEMP = new_image(pslices, prows, pcols);
+			pack(MOVED, ITEMP);
+			delete_image(MOVED);
+			MOVED = ITEMP;
+
+			MSLICES = pslices;
+			MROWS = prows;
+			MCOLS = pcols;
+
+			S = S*2;
+		}
+	}
 
 	crop_roi(ROI);
 	get_limits_roi(ROI);
@@ -3187,10 +3287,6 @@ int go(int argc, char *argv[])
 	make_mesh_data();
 
 	normalise(FIXED, ROI, 1.0);
-	if (FSM > 0)
-		for (k = 0; k < FSM; k++)
-			smooth_image(FIXED);
-
 	get_B_and_lamda_3d(FIXED,ROI);
 
 
@@ -3201,7 +3297,7 @@ int go(int argc, char *argv[])
 
 	MIMAX = MI(FIXED, ROI, MOVED);
 	printf("starting mutual information = %f\n",MIMAX);
-	register_image(FIXED, ROI, registered);
+	register_image_full_3d(FIXED, ROI, registered);
 
 	delete_image(FIXED);
 	delete_image(ROI);
@@ -3224,31 +3320,5 @@ int go(int argc, char *argv[])
 	}
 
 	SIDE = SIDE*S;
-	printf("%d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS);
-
-	registered = new_image(MSLICES, MROWS, MCOLS);
-	interpolate_image_3d(registered);
-	t_image = alloc_image(MCOLS, MROWS, MSLICES);
-	for (i = 0; i<MSLICES; i++)
-			for (j=0; j<MROWS; j++)
-					for (k=0; k<MCOLS; k++)
-						t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = registered[i][j][k];
-
-	t_image->sepx = t_image->sepy = t_image->sepz = SLICESEP;
-	printf("%d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS);
-
-	if (ORIGSEP != SLICESEP && MSLICES > 1) {
-			interp_image = interpolate_slices(t_image,ORIGSEP);
-			free_image(t_image);
-			t_image = interp_image;
-	}
-	printf("%d %d %d %d %d\n",nslices,MSLICES,MROWS,MCOLS,t_image->slices);
-	nslices = t_image->slices;
-	for (i = 0; i<nslices; i++)
-            {printf("%d \n",i);
-			for (j=0; j<MROWS; j++)
-					for (k=0; k<MCOLS; k++)
-						mask->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] ;
-            }
-    return(0);
 }
+

@@ -20,7 +20,7 @@ this directory and modified in-place. Should produce identical results to
 prog.registration.old_pipe for the same parameters
 """
 
-import os
+import os,gc
 import numpy as np
 import ctypes as ct
 here = os.path.dirname(os.path.abspath(__file__)) + os.sep
@@ -45,6 +45,18 @@ int32, and the pointer to the data is at fixed+16 bytes, also an int32
 ROI, which was referenced in setting up the number of nodes and the
 extremes of the ranges to use.
 Should repair them, and simply provide an ROI that is all 1.0"""
+
+default_pars = {'grid':16,'sub_res':0,'lambda':64,'sub_lambda':2, 'fix':True}
+
+def set_pars(pars):
+    newpars = default_pars.copy()
+    newpars.update(pars)
+    ct.c_int.in_dll(_lib,'SIDE').value = newpars['grid']
+    ct.c_float.in_dll(_lib,'LAMDA').value = newpars['lambda']
+    ct.c_int.in_dll(_lib,'PACK').value = newpars['sub_res']
+    ct.c_int.in_dll(_lib,'ITERM').value = newpars['sub_lambda']
+    ct.c_int.in_dll(_lib,'REDUCE').value = int(newpars['fix'])
+    
 
 def put_data(fixed,moving,vox):
     """Make the global variables fixed,moving and mask point to the numpy array
@@ -75,7 +87,7 @@ def get_map():
     nnodes, XP, YP, ZP, SIDE, MCOLS, MROWS, MSLICES = [ct.c_int.in_dll(_lib,u).value for u in
         ('NUMBER_OF_NODES','XP', 'YP', 'ZP', 'SIDE', 'MCOLS', 'MROWS', 'MSLICES')]
     ints = [nnodes, XP, YP, ZP, SIDE, MCOLS, MROWS, MSLICES]
-    strs = [ct.string_at(ct.c_int.in_dll(_lib,u),size=nnodes*4) for u  in 
+    strs = [ct.string_at(ct.c_int.in_dll(_lib,u).value,size=nnodes*4) for u  in 
         ('XC', 'YC', 'ZC', 'MAP', 'UT', 'VT', 'WT', 'AT')]
     return ints,strs
 
@@ -92,14 +104,23 @@ def put_map(ints,strs):
         ct.c_int.in_dll(_lib,label).value = value
     for (label,value) in zip(('XC', 'YC', 'ZC', 'MAP', 'UT', 'VT', 'WT', 'AT'),strs):
         st = ct.create_string_buffer(value)
-        ct.c_int.in_dll(_lib,label).value = ct.byteref(st)
+        ct.c_int.in_dll(_lib,label).value = ct.addressof(st)
 
 from prog import volumes
-v = volumes.load('/home/durant/501/12778',[3])
-v = v.select([0,1]).segment(left=1)
+v = volumes.load('/home/mdurant/data/501/12778',[3])
+v = v.select([0,1]).segment(left=1,conserv=0)
+
+def resample(transform):
+    gc.disable()
+    mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
+    
 
 def test():
+    gc.collect()
+    gc.disable()
     mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
-    mask.shape,v.shape
     _lib.go()
-    return mask
+    _lib.resample()
+    out = mask.copy()
+    gc.enable()
+    return out
