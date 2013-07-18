@@ -72,7 +72,6 @@ float ***MOVED;
 float ***FIXED;
 float ***ROI;
 float ***ITEMP;
-float ***registered;
 float LAMDA;
 float BI;
 float *BL;
@@ -3180,11 +3179,15 @@ void pack(float ***pic, float ***ppic)
 
 void resample()
 {
-    extern float ***registered;
+    float ***registered;
     image *t_image,*interp_image;
 	int i,j,k;
 	int nslices;
+	extern float ***ROI,***FIXED,***MOVED;
 
+	ROI = load_image_alt(&MCOLS, &MROWS, &MSLICES, 3);
+    FIXED =  load_image_alt(&MCOLS, &MROWS, &MSLICES, 1);
+	MOVED = load_image_alt(&MCOLS, &MROWS, &MSLICES, 2);
     registered = new_image(MSLICES, MROWS, MCOLS);
 	interpolate_image_3d(registered);
 	t_image = alloc_image(MCOLS, MROWS, MSLICES);
@@ -3210,7 +3213,7 @@ void resample()
 
 void go(int argc, char *argv[])
 {
-    extern float ***registered;
+    float ***registered;
 	float ***ROI;
 	int ncols, nrows, nslices;
 	float off;

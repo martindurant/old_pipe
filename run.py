@@ -20,7 +20,7 @@ this directory and modified in-place. Should produce identical results to
 prog.registration.old_pipe for the same parameters
 """
 
-import os,gc
+import os,gc,cPickle
 import numpy as np
 import ctypes as ct
 here = os.path.dirname(os.path.abspath(__file__)) + os.sep
@@ -34,17 +34,13 @@ _lib.make_moving.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
 _lib.make_mask.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
-_lib.go.restype = ct.c_int
+_lib.go.restype = None
+_lib.resample.restype = None
 _lib.init()
 """for each Image structure, the first three elements are ints giving
 the array size, and the next is a pointer to the data; the ints are
 int32, and the pointer to the data is at fixed+16 bytes, also an int32
 """
-
-"""Suspect that breakage is in the removal of if clauses dealing with
-ROI, which was referenced in setting up the number of nodes and the
-extremes of the ranges to use.
-Should repair them, and simply provide an ROI that is all 1.0"""
 
 default_pars = {'grid':16,'sub_res':0,'lambda':64,'sub_lambda':2, 'fix':True}
 
@@ -91,6 +87,8 @@ def get_map():
         ('XC', 'YC', 'ZC', 'MAP', 'UT', 'VT', 'WT', 'AT')]
     return ints,strs
 
+buffers = [] # required to hold references and prevent free before next put_map()
+
 def put_map(ints,strs):
     """Return all the information in the current map, stored in global variables
     in _lib: 
@@ -100,20 +98,25 @@ def put_map(ints,strs):
     - a set of float arrays of length nnodes float32 values (nnodes*4 bytes)
     representing the arrays.
     """
+    global buffers
     for (label,value) in zip(('NUMBER_OF_NODES','XP', 'YP', 'ZP', 'SIDE', 'MCOLS', 'MROWS', 'MSLICES'),ints):
         ct.c_int.in_dll(_lib,label).value = value
+    buffers = []
     for (label,value) in zip(('XC', 'YC', 'ZC', 'MAP', 'UT', 'VT', 'WT', 'AT'),strs):
         st = ct.create_string_buffer(value)
         ct.c_int.in_dll(_lib,label).value = ct.addressof(st)
+        buffers.append(st)
 
 from prog import volumes
 v = volumes.load('/home/mdurant/data/501/12778',[3])
 v = v.select([0,1]).segment(left=1,conserv=0)
 
-def resample(transform):
-    gc.disable()
+def resample():
     mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
-    
+    put_map(*cPickle.load(open('temp')))
+    _lib.resample()
+    out = mask.copy()
+    return out    
 
 def test():
     gc.collect()
@@ -121,6 +124,7 @@ def test():
     mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
     _lib.go()
     _lib.resample()
+    cPickle.dump( get_map(), open('temp','w'), -1)
     out = mask.copy()
     gc.enable()
     return out
