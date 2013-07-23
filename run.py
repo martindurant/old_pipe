@@ -27,6 +27,7 @@ here = os.path.dirname(os.path.abspath(__file__)) + os.sep
 
 nd = np.ctypeslib.ndpointer(np.float32,3,None,'C')
 _lib = ct.cdll.LoadLibrary(here+'_old_pipe.so')
+_clib = ct.cdll.LoadLibrary('libc.so.6')
 
 _lib.make_fixed.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
@@ -36,13 +37,14 @@ _lib.make_mask.argtypes = [nd,ct.c_int,ct.c_int,ct.c_int,
                             ct.c_float,ct.c_float,ct.c_float]
 _lib.go.restype = None
 _lib.resample.restype = None
+_lib.resample.init = None
 _lib.init()
 """for each Image structure, the first three elements are ints giving
 the array size, and the next is a pointer to the data; the ints are
 int32, and the pointer to the data is at fixed+16 bytes, also an int32
 """
 
-default_pars = {'grid':16,'sub_res':0,'lambda':64,'sub_lambda':2, 'fix':True}
+default_pars = {'grid':16,'sub_res':1,'lambda':64,'sub_lambda':2, 'fix':True}
 
 def set_pars(pars):
     newpars = default_pars.copy()
@@ -109,6 +111,7 @@ def put_map(ints,strs):
 
 from prog import volumes
 v = volumes.load('/home/mdurant/data/501/12778',[3])
+#v = volumes.load('/home/mdurant/data/9/26913', [700, 701])
 v = v.select([0,1]).segment(left=1,conserv=0)
 
 def resample():
@@ -121,10 +124,11 @@ def resample():
 def test():
     gc.collect()
     gc.disable()
+    set_pars({})
     mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
     _lib.go()
     _lib.resample()
-    cPickle.dump( get_map(), open('temp','w'), -1)
     out = mask.copy()
+    cPickle.dump( get_map(), open('temp','w'), -1)
     gc.enable()
     return out

@@ -66,7 +66,7 @@ int PACK;
 int S;
 float Z;
 int FAST;
-
+int m;
 int NN;
 float ***MOVED;
 float ***FIXED;
@@ -190,6 +190,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
     extern image *fixed,*moving, *mask;
 	float ***p;
 	int i,j,k;
+	int interp=0;
 	image *interp_image,*t_image;
 
 	switch (choice){
@@ -203,6 +204,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
 			interp_image = interpolate_slices(t_image, t_image->sepx);
 			t_image = interp_image;
+			interp=1;
 	}
 	SLICESEP = t_image->sepz;
 
@@ -215,7 +217,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 			for (j=0; j<*rows; j++)
 					for (k=0; k<*cols; k++)
 							p[i][j][k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k];
-	//free_image(t_image);
+	if(interp) free_image(t_image);
 	return(p);
 }
 
@@ -1186,136 +1188,6 @@ void invert(double **a,double **b, int size)
 	free_double_array_1d(em);
 	return;
 }
-
-/* ****************************************************
- * void extract_image(float ***pic, float ***epic)
- *
- * input: 3D image pic, int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX
- * output: 3D image epic
- *
- * Stores the subregion of pic, delimited by
- * [SMIN,SMAX]*[RMIN,RMAX]*[CMIN,CMAX] in epic. Presumably assumes
- * that space has already been allocated for epic. Also, use of variables
- * MCOLS, MROWS, MSLICES, pslices, prows, pcols seems irrelevant.
- * ***************************************************/
-
-void extract_image(float ***pic, float ***epic)
-{
-	int col, row, slice;
-
-	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
-    for (slice = SMIN; slice <= SMAX; slice++)
-		for (row = RMIN; row <= RMAX; row++)
-			for (col = CMIN; col <= CMAX; col++)
-				epic[slice - SMIN][row - RMIN][col - CMIN] = pic[slice][row][col];
-
-}
-
-/*******************************************************
- * void insert_image(float ***epic, float ***pic)
- *
- * input: 3D images epic and pic
- * output: modifies pic
- *
- * Overwrites subregion of pic delimited by
- * [SMIN,SMAX]*[RMIN,RMAX]*[CMIN,CMAX] with contents of epic.
- * Use of variables MCOLS, MROWS, MSLICES, gx, gy, gz, and abg seems
- * irrelevant.
- * *****************************************************/
-
-void insert_image(float ***epic, float ***pic)
-{
-	int col, row, slice;
-	int pslices, prows, pcols;
-
-	extern int CMIN, CMAX, RMIN, RMAX, SMIN, SMAX;
-
-	pslices = SMAX - SMIN + 1;
-	prows = RMAX - RMIN + 1;
-	pcols = CMAX - CMIN + 1;
-
-	for (slice = 0; slice < pslices; slice++)
-		for (row = 0; row < prows; row++)
-			for (col = 0; col < pcols; col++)
-				pic[slice + SMIN][row + RMIN][col + CMIN] = epic[slice][row][col];
-
-}
-
-void smooth_image(float ***pa)
-{
-    float ***panew;
-    int slice, row, col;
-
-    extern int MSLICES;
-    extern int MROWS;
-    extern int MCOLS;
-
-    panew = new_image(MSLICES, MROWS, MCOLS);
-
-    if (MSLICES > 0)
-    {
-
-    for (slice = 1; slice < (MSLICES-1); ++slice)
-        for (row = 1; row < (MROWS-1); ++row)
-            for (col = 1; col < (MCOLS-1); ++col)
-			{
-				/*
-                panew[slice][row][col] = pa[slice][row][col]/3.0 + (
-                        pa[slice+1][row][col] + pa[slice-1][row][col] +
-                        pa[slice][row+1][col] + pa[slice][row-1][col] +
-                        pa[slice][row][col+1] + pa[slice][row][col-1])/9.0;
-				*/
-                panew[slice][row][col] = (
-                        pa[slice+1][row][col] + pa[slice-1][row][col] +
-                        pa[slice][row+1][col] + pa[slice][row-1][col] +
-                        pa[slice][row][col+1] + pa[slice][row][col-1])/6.0;
-			}
-    for (slice = 1; slice < (MSLICES-1); ++slice)
-        for (row = 1; row < (MROWS-1); ++row)
-            for (col = 1; col < (MCOLS-1); ++col)
-			{
-				//printf("Value at %d,%d,%d: %f\n",col,row,slice,pa[slice][row][col]);
-                pa[slice][row][col] = panew[slice][row][col];
-			}
-    delete_image(panew);
-    }
-    else
-    {
-        for (row = 0; row < MROWS; ++row)
-        {
-        for (col = 0; col < (MCOLS-1); ++col)
-            pa[0][row][col] = (pa[0][row][col] + pa[0][row][col+1])/2.0;
-
-        for (col = (MCOLS-1); col > 0; --col)
-            pa[0][row][col] = (pa[0][row][col] + pa[0][row][col-1])/2.0;
-         }
-
-        for (col = 0; col < MCOLS; ++col)
-        {
-        for (row = 0; row < (MROWS-1); ++row)
-            pa[0][row][col] = (pa[0][row][col] + pa[0][row+1][col])/2.0;
-
-        for (row = (MROWS-1); row > 0; --row)
-            pa[0][row][col] = (pa[0][row][col] + pa[0][row-1][col])/2.0;
-         }
-
-    }
-
-}
-
-/* *****************************************************
- * void get_cords(int i, int X, int Y, int Z, int *xp, int *yp, int *zp)
- *
- * input:
- * 	int i, enumerating a node
- * 	int X.Y,Z corresponding to dimensions of node grid (see XP,YP,ZP)
- * output:
- *  int *xp, *yp, *zp	the node coordinates of the i^{th} node
- *
- *  Nodes are sorted by x value, then y value, then z value (i.e. z is the
- *  most significant term, followed by y, followed by x.) Note that this
- *  function essentially seems to invert pnt().
- * *****************************************************/
 
 void get_cords(int i, int X, int Y, int Z, int *xp, int *yp, int *zp)
 {
@@ -2320,7 +2192,7 @@ void pack_matrices()
 int register_image_full_3d(float ***fixed, float ***roi, float ***registered)
 {
     int row, col, slice;
-    int m;
+    extern int m;
     int i, j, k;
     double *TD;
 	double *TDX;
@@ -2655,7 +2527,7 @@ int register_image_full_3d(float ***fixed, float ***roi, float ***registered)
 					MIMAX = mi;
 					interpolate_image_amp_3d(registered);
 
-					printf("m = %d, mc = %d um = %f ua = %f  MI = %f %f %d\n", m, mc, um, ua, mi, LAMDA, iter);
+					//printf("m = %d, mc = %d um = %f ua = %f  MI = %f %f %d\n", m, mc, um, ua, mi, LAMDA, iter);
 				}
 
 
@@ -3208,7 +3080,7 @@ void resample()
 			for (j=0; j<MROWS; j++)
 					for (k=0; k<MCOLS; k++)
 						mask->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] = t_image->data[i*t_image->rows*t_image->cols + j*t_image->cols + k] ;
-
+    //free_image(t_image);
 }
 
 void go(int argc, char *argv[])
@@ -3217,6 +3089,7 @@ void go(int argc, char *argv[])
 	float ***ROI;
 	int ncols, nrows, nslices;
 	float off;
+	float mi;
 
 	extern float ***FIXED;
     extern int MCOLS, MROWS, MSLICES;
@@ -3240,6 +3113,7 @@ void go(int argc, char *argv[])
 	extern float *BL;
 	extern float MIMAX;
 	extern int MUTUAL;
+	extern int m;
 	extern image *mask;
 	int k;
 	int pcols, prows, pslices;
@@ -3299,8 +3173,10 @@ void go(int argc, char *argv[])
 	first_comp();
 
 	MIMAX = MI(FIXED, ROI, MOVED);
-	printf("starting mutual information = %f\n",MIMAX);
+	mi = MIMAX;
 	register_image_full_3d(FIXED, ROI, registered);
+	//MIMAX = MI(FIXED, ROI, MOVED);
+	printf("MI = %f -> %f  in %d iterations\n",mi,MI(FIXED, ROI, registered),m);
 
 	delete_image(FIXED);
 	delete_image(ROI);
