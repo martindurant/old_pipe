@@ -44,7 +44,7 @@ the array size, and the next is a pointer to the data; the ints are
 int32, and the pointer to the data is at fixed+16 bytes, also an int32
 """
 
-default_pars = {'grid':16,'sub_res':1,'lambda':64,'sub_lambda':2, 'fix':True}
+default_pars = {'grid':32,'sub_res':2,'lambda':64,'sub_lambda':4, 'fix':True}
 
 def set_pars(pars):
     newpars = default_pars.copy()
@@ -63,7 +63,7 @@ def put_data(fixed,moving,vox):
     it will always be all 1 anyway.
     """
     assert moving.shape == fixed.shape
-    z,y,x = fixed.shape
+    z,x,y = fixed.shape
     k,j,i = vox
     _lib.make_fixed(fixed,x,y,z,i,j,k)
     _lib.make_moving(moving,x,y,z,i,j,k)
@@ -110,8 +110,8 @@ def put_map(ints,strs):
         buffers.append(st)
 
 from prog import volumes
-v = volumes.load('/home/mdurant/data/501/12778',[3])
-#v = volumes.load('/home/mdurant/data/9/26913', [700, 701])
+#v = volumes.load('/home/mdurant/data/501/12778',[3])
+v = volumes.load('/home/mdurant/data/9/26913', [700, 701])
 v = v.select([0,1]).segment(left=1,conserv=0)
 
 def resample():
@@ -125,7 +125,8 @@ def test():
     gc.collect()
     gc.disable()
     set_pars({})
-    mask = put_data(v[0].astype(np.float32),v[1].astype(np.float32),v.vox)
+    inputs = v[0].astype(np.float32),v[1].astype(np.float32),v.vox
+    mask = put_data(*inputs)
     _lib.go()
     _lib.resample()
     out = mask.copy()

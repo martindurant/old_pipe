@@ -192,7 +192,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 	int i,j,k;
 	int interp=0;
 	image *interp_image,*t_image;
-
+printf("Choice %d\n",choice);
 	switch (choice){
         case 1: t_image = fixed; break;
         case 2: t_image = moving; break;
@@ -201,11 +201,12 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 
 	ORIGSEP = t_image->sepz;
 
-	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
-			interp_image = interpolate_slices(t_image, t_image->sepx);
-			t_image = interp_image;
-			interp=1;
-	}
+//	if (t_image->sepz != t_image->sepx && t_image->slices > 1) {
+//			interp_image = interpolate_slices(t_image, t_image->sepx);
+//			t_image = interp_image;
+//			interp=1;
+//	}
+	printf("interped\n");
 	SLICESEP = t_image->sepz;
 
 	*cols = t_image->cols;
@@ -213,6 +214,7 @@ float ***load_image_alt(int *cols, int *rows, int *slices, int choice)
 	*slices = t_image->slices;
 
 	p = new_image(*slices,*rows,*cols);
+	printf("newed\n");
  	for (i = 0; i<*slices; i++)
 			for (j=0; j<*rows; j++)
 					for (k=0; k<*cols; k++)
@@ -3070,11 +3072,11 @@ void resample()
 
 	t_image->sepx = t_image->sepy = t_image->sepz = SLICESEP;
 
-	if (ORIGSEP != SLICESEP && MSLICES > 1) {
-			interp_image = interpolate_slices(t_image,ORIGSEP);
-			free_image(t_image);
-			t_image = interp_image;
-	}
+//	if (ORIGSEP != SLICESEP && MSLICES > 1) {
+//			interp_image = interpolate_slices(t_image,ORIGSEP);
+//			free_image(t_image);
+//			t_image = interp_image;
+//	}
 	nslices = t_image->slices;
 	for (i = 0; i<nslices; i++)
 			for (j=0; j<MROWS; j++)
@@ -3087,7 +3089,6 @@ void go(int argc, char *argv[])
 {
     float ***registered;
 	float ***ROI;
-	int ncols, nrows, nslices;
 	float off;
 	float mi;
 
@@ -3118,14 +3119,16 @@ void go(int argc, char *argv[])
 	int k;
 	int pcols, prows, pslices;
 
+    FIXED =  load_image_alt(&MCOLS, &MROWS, &MSLICES, 1);
+	MOVED = load_image_alt(&MCOLS, &MROWS, &MSLICES, 2);
 	ROI = load_image_alt(&MCOLS, &MROWS, &MSLICES, 3);
-    FIXED =  load_image_alt(&ncols, &nrows, &nslices, 1);
-	MOVED = load_image_alt(&ncols, &nrows, &nslices, 2);
+	printf("loaded\n");
 	S = 1;
 	if (PACK > 0)
 	{
 		for (k = 0; k < PACK; k++)
 		{
+        printf("pack\n");
 			pslices = MSLICES/2;
 			prows = MROWS/2;
 			pcols = MCOLS/2;
@@ -3157,20 +3160,26 @@ void go(int argc, char *argv[])
 	}
 
 	crop_roi(ROI);
+	printf("crop\n");
 	get_limits_roi(ROI);
+	printf("lims\n");
 	SIDE = (int)(SIDE/S);
 	CLIMIT /= S;
 
 	make_mesh_data();
+	printf("mesh\n");
 
 	normalise(FIXED, ROI, 1.0);
+	printf("norm1\n");
 	get_B_and_lamda_3d(FIXED,ROI);
+	printf("Blam\n");
 
 
 	normalise(MOVED, ROI, 1.0);
 
 	registered = new_image(MSLICES, MROWS, MCOLS);
 	first_comp();
+	printf("comp\n");
 
 	MIMAX = MI(FIXED, ROI, MOVED);
 	mi = MIMAX;
