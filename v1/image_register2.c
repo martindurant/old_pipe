@@ -206,7 +206,6 @@ printf("Choice %d\n",choice);
 //			t_image = interp_image;
 //			interp=1;
 //	}
-	printf("interped\n");
 	SLICESEP = t_image->sepz;
 
 	*cols = t_image->cols;
@@ -214,7 +213,6 @@ printf("Choice %d\n",choice);
 	*slices = t_image->slices;
 
 	p = new_image(*slices,*rows,*cols);
-	printf("newed\n");
  	for (i = 0; i<*slices; i++)
 			for (j=0; j<*rows; j++)
 					for (k=0; k<*cols; k++)
@@ -3160,26 +3158,20 @@ void go(int argc, char *argv[])
 	}
 
 	crop_roi(ROI);
-	printf("crop\n");
 	get_limits_roi(ROI);
-	printf("lims\n");
 	SIDE = (int)(SIDE/S);
 	CLIMIT /= S;
 
 	make_mesh_data();
-	printf("mesh\n");
 
 	normalise(FIXED, ROI, 1.0);
-	printf("norm1\n");
 	get_B_and_lamda_3d(FIXED,ROI);
-	printf("Blam\n");
 
 
 	normalise(MOVED, ROI, 1.0);
 
 	registered = new_image(MSLICES, MROWS, MCOLS);
 	first_comp();
-	printf("comp\n");
 
 	MIMAX = MI(FIXED, ROI, MOVED);
 	mi = MIMAX;
